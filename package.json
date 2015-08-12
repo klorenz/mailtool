@@ -13,6 +13,7 @@
   ],
   "author": "Kay-Uwe (Kiwi) Lorenz <kiwi@franka.dyndns.org>",
   "license": "ISC",
+  "repository": "https://github.com/klorenz/mailtool.git",
   "dependencies": {
     "dot": "^1.0.3",
     "nodemailer": "^1.4.0",
