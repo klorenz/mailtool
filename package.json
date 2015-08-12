@@ -1,0 +1,23 @@
+{
+  "name": "mailtool",
+  "version": "0.0.0",
+  "description": "A Wrapper around nodemailer, which reads configuration from cson files.",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "nodemailer",
+    "cson",
+    "configuration"
+  ],
+  "author": "Kay-Uwe (Kiwi) Lorenz <kay@moduleworks.com>",
+  "license": "ISC",
+  "dependencies": {
+    "dot": "^1.0.3",
+    "nodemailer": "^1.4.0",
+    "nodemailer-markdown": "^1.0.0",
+    "season": "^5.3.0",
+    "underscore": "^1.8.3"
+  }
+}
