@@ -11,7 +11,7 @@
     "cson",
     "configuration"
   ],
-  "author": "Kay-Uwe (Kiwi) Lorenz <kay@moduleworks.com>",
+  "author": "Kay-Uwe (Kiwi) Lorenz <kiwi@franka.dyndns.org>",
   "license": "ISC",
   "dependencies": {
     "dot": "^1.0.3",
