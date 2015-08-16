@@ -15,9 +15,10 @@
   "license": "ISC",
   "repository": "https://github.com/klorenz/mailtool.git",
   "dependencies": {
-    "dot": "^1.0.3",
     "nodemailer": "^1.4.0",
+    "nodemailer-dot-templates": "^0.1.0",
     "nodemailer-markdown": "^1.0.0",
+    "nodemailer-signature": "^0.1.0",
     "season": "^5.3.0",
     "underscore": "^1.8.3"
   }

@@ -14,8 +14,11 @@ describe "MailTool", ->
         debugger
 
       sendMail: (data, callback) ->
+
         callback(null)
-      use: ->
+
+      use: (mode, func) ->
+
     }
 
     mockFunction = ->
@@ -24,7 +27,7 @@ describe "MailTool", ->
 
     spyOn(mock, 'callback').andCallThrough()
     spyOn(mock, 'sendMail').andCallThrough()
-    spyOn(mock, 'use')
+    spyOn(mock, 'use').andCallThrough()
 
     mailoptsConfig =
       default: {

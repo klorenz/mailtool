@@ -1,8 +1,12 @@
-CSON = require 'season'
-{markdown} = require 'nodemailer-markdown'
-nodemailer = require 'nodemailer'
-doT = require 'dot'
+CSON           = require 'season'
+{markdown}     = require 'nodemailer-markdown'
+{doT}          = require 'nodemailer-dot-templates'
+{signature}    = require 'nodemailer-signature'
+nodemailer     = require 'nodemailer'
 {keys, extend} = require 'underscore'
+
+getUserHome = () ->
+  process.env[(process.platform == 'win32') ? 'USERPROFILE' : 'HOME']
 
 isUpperCase = (s) ->
   s.toUpperCase() == s
@@ -13,10 +17,15 @@ class MailToolMissingFieldError extends Error
 
 class MailTool
   constructor: (config, transport) ->
+    if not config
+      config = getUserHome() + "/.nodemailer.conf"
 
     # read config from file if it is a string
     if typeof config is "string"
-      @config = CSON.readFileSync config
+      try
+        @config = CSON.readFileSync config
+      catch e
+        @config = {}
     else
       @config = config
 
@@ -64,73 +73,23 @@ class MailTool
     if configFileName?
       config.configFileName = configFileName
 
-  applyTemplates: (options) ->
-    templates = {}
-    templateData = extend {}, options.data
+  compile: (options, callback) ->
+    cfgName = options.config or options.name or 'default'
 
-    for key, value of options
-      if not value.match /\{\{/
-        if key not of templateData
-          templateData[key] = value
-      else
-        templates[key] = {
-          source: value,
-          template: doT.template(value.replace(/\{\{\w+\}\}/, (m) -> "{{=it."+m.substring(2)))
-          hasUndefined: /undefined/.test value
-          }
-
-    currentTemplateCount = templates.length
-    while keys(templates).length
-      for key in keys(templates)
-        value = templates[key].template(templateData)
-        hasUndefined = /undefined/.test value
-
-        if (not hasUndefined or (hasUndefined and templates[key].hasUndefined))
-          delete templates[key]
-          templateData[key] = value
-          options[key] = value
-
-      if currentTemplateCount == templates.length
-        # not all templates could be applied
-        # this is may be an error or the text
-        break
-
-  sendMail: (config, callback) ->
-    cfgName = config.config or config.name or 'default'
-
-    mailOpts = {}
-    toolOpts = {}
-
-    data = {}
-
-    # merge Template Data
-    templateData = extend @config[cfgName].data or {}, config.data or {}
-
-    for opts in [@config[cfgName], config]
-      for key, value of opts
-        data[key] = value
-
-    data.data = templateData
+    for key, value of @config[cfgName]
+      if key not of options
+        options[key] = value
+      else if typeof options[key] is "object" and typeof value is "object"
+        options[key] = extend {}, value, options[key]
 
     for field in @required
-      if field not of data
+      if field not of options
         return process.nextTick -> callback new MailToolMissingFieldError(field)
 
-    # maybe create an own nodemailer-signature-transport plugin
-    if 'signature' of data
-      if typeof data.signature is "string"
-         # append signature to text and html and markdown
+    callback?()
 
-         if data.text
-           data.text += "\n--\n" + data.signature
-
-         else if data.markdown
-           data.markdown += "\n--\n" + data.signature
-
-      else if data.signature
-        for name in ['html', 'text', 'markdown']
-          if name of data.signature
-            data[name] += data.signature[name]
+  sendMail: (config, callback) ->
+    @compile(config)
 
     # setup transport
     if not @transport
@@ -140,8 +99,17 @@ class MailTool
     else
       transport = nodemailer.createTransport @transport data.transport
 
-    transport.use('compile', markdown data)
+    transport.use('compile', doT())
+    transport.use('compile', signature())
+    transport.use('compile', markdown config)
 
-    transport.sendMail data, callback
+    transport.sendMail config, callback
+
+nodeMailerConfig = (args...) ->
+  mailtool = new MailTool args...
+
+  (options, done) ->
+    mailtool.compile(options, done)
+
 
 module.exports = {MailTool}
