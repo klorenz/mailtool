@@ -15,11 +15,16 @@
   "license": "ISC",
   "repository": "https://github.com/klorenz/mailtool.git",
   "dependencies": {
+    "axe-logger": "0.0.2",
+    "imap-client": "^0.14.3",
+    "node-forge": "^0.6.34",
     "nodemailer": "^1.4.0",
     "nodemailer-dot-templates": "^0.1.0",
     "nodemailer-markdown": "^1.0.0",
     "nodemailer-signature": "^0.1.0",
+    "nodemailer-smtp-transport": "^1.0.3",
     "season": "^5.3.0",
+    "tcp-socket": "git+https://github.com/klorenz/tcp-socket.git",
     "underscore": "^1.8.3"
   }
 }

@@ -57,3 +57,7 @@ describe "MailTool", ->
       mock.callback.wasCalled
     runs ->
       expect(mock.sendMail).toHaveBeenCalledWith(extend({config: 'someconfig'}, mailoptsConfig.someconfig, mailopts), mock.callback)
+
+  fit "can run mail", ->
+    debugger
+    main.main()
