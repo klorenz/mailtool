@@ -129,7 +129,6 @@ class MailTool
       options = extend {}, @config[name].mailbox, options
       options.auth = extend {}, @config[name].mailbox.auth, options.auth or {}
 
-
       if typeof config.auth.pass is "function"
         passwdFunction = options.auth.pass
         options.auth.pass (passwd, callback) =>
@@ -140,7 +139,7 @@ class MailTool
       passwdFile = path.resolve configFileDir, config.auth.pass
 
       if fs.existsSync passwdFile
-        options.auth.pass = fs.readFileSync(passwdFile).trim()
+        options.auth.pass = fs.readFileSync(passwdFile).toString().trim()
 
     else
       name = "#{config.auth.user}@#{host}:#{port}"
@@ -290,7 +289,7 @@ class MailTool
         passwdFile = path.resolve configFileDir, auth.pass
 
         if fs.existsSync passwdFile
-          auth.pass = fs.readFileSync(passwdFile).trim()
+          auth.pass = fs.readFileSync(passwdFile).toString().trim()
 
       # setup transport
 
