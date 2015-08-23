@@ -71,14 +71,39 @@ class MailTool
     @transport = transport
     @required = ['subject', 'to']
 
+  # Public: Return configuration data.
+  #
+  # name - Optional, the name of account configuration to be retrieved.
+  #
+  #        It can be either "AccountName" to retrieve complete account
+  #        data or "AccountName.configuration" to retrieve specific
+  #        configuration.
+  #
+  #        If you do not supply a name at all, there is returned a list
+  #        of objects {name: "AccountName", alias: "OtherAccountName"}.
+  #        Alias is not present, if account is not an alias for another
+  #        account.
+  #
+  # Examples
+  #
+  #    mailtool->getConfig()
+  #    # => [{name: 'FirstAccount'}, {name: 'default', alias: 'FirstAccount'}]
+  #
+  #    mailtool->getConfig('FirstAccount.default')
+  #    # return default send mail configuration from FirstAccount
+  #
+  # Returns configuration data.
+
   getConfig: (name) ->
     unless name
       result = []
       for name of @config
+        continue if name is "configFileName"
         if typeof @config[name] is "string"
           result.push name: name, alias: @config[name]
         else
           result.push name: name
+      return result
 
     cfg = name
     subcfg = null
