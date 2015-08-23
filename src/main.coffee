@@ -255,7 +255,7 @@ class MailTool
     missing = []
     for field in @required
       if field not of options
-        missing.append field
+        missing.push field
 
     if missing.length
       if options.optionDialog
@@ -324,12 +324,12 @@ class MailTool
           console.log "message compiled", theMail
           callback()
 
-        transporter.sendMail config, (err) ->
-          #store mailMessage to imap
-          if err?
-            callback(err)
-          else
-            callback(theMail)
+        transporter.sendMail config, callback
+          # #store mailMessage to imap
+          # if err?
+          #   callback(err)
+          # else
+          #   callback(theMail)
 
 nodeMailerConfig = (args...) ->
   mailtool = new MailTool args...
