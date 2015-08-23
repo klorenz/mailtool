@@ -1,6 +1,6 @@
 {
   "name": "mailtool",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "A Wrapper around nodemailer, which reads configuration from cson files.",
   "main": "lib/main.js",
   "scripts": {
