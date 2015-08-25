@@ -50,7 +50,10 @@ class MailToolMissingFieldError extends Error
 class MailTool
   constructor: (config, transport) ->
     if not config
-      config = "~/.mailtool.cson"
+      config = "~/.mailtool/config.cson"
+      dir = @resolveFileName("~/.mailtool")
+      if not fs.existsSync dir
+        fs.mkdir dir, 0o0700
 
     # read config from file if it is a string
     if typeof config is "string"
@@ -65,8 +68,8 @@ class MailTool
         @config.default = k
         break
 
-    if typeof @config.default is "string"
-      @config.default = @config[@config.default]
+    # if typeof @config.default is "string"
+    #   @config.default = @config[@config.default]
 
     @transport = transport
     @required = ['subject', 'to']
@@ -132,6 +135,10 @@ class MailTool
 
     return cfg[mailer]
 
+  hasMailbox: (name) ->
+    cfg = @getConfig name
+    "mailbox" of cfg
+
   # returns promise
   #
   # pass may be a function getting a callback with first parameter
@@ -150,9 +157,14 @@ class MailTool
 
       @imapConnections[name]
 
+    cfg = @getConfig(name)
+
+    if "mailbox" not of cfg and not host
+      throw new Error "No mailbox configured for #{name}"
+
     if name
-      options = extend {}, @config[name].mailbox, options
-      options.auth = extend {}, @config[name].mailbox.auth, options.auth or {}
+      options = extend {}, cfg.mailbox, options
+      options.auth = extend {}, cfg.mailbox.auth, options.auth or {}
 
       if typeof config.auth.pass is "function"
         passwdFunction = options.auth.pass
@@ -160,7 +172,7 @@ class MailTool
           options.auth.pass = passwd
           callback connectImap name, options
 
-      configFileDir = path.dirname @config[name].configFileName
+      configFileDir = path.dirname cfg.configFileName
       passwdFile = path.resolve configFileDir, config.auth.pass
 
       if fs.existsSync passwdFile
@@ -170,6 +182,8 @@ class MailTool
       name = "#{config.auth.user}@#{host}:#{port}"
 
     connectImap name, options
+
+  
 
   closeImapConnections: (callback) ->
     imapConnections = @imapConnections
