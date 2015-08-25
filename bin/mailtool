@@ -1,0 +1,4 @@
+#!/usr/bin/env nodejs
+
+main = require(__dirname + '/../lib/main.js')
+main.main()

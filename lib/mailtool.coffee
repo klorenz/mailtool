@@ -27,11 +27,43 @@ getImapClient = (logLevel=null)->
       return axe
     else
       return orig_require.call this, name
-  ImapClient = require 'imap-client'
+  ImapClient = require 'browserbox'
   module.constructor.prototype.require = orig_require
 
-  getImapClient.ImapClient = ImapClient
-  return ImapClient
+  class ImapConnection
+    constructor: (@options) ->
+      @client = new BrowserBox @options.host, @options.port, @options
+      @onClose = options.onClose
+
+    login: ->
+      Q.Promise (resolve, reject) =>
+        client = new BrowserBox @options.host, @options.port, @options
+
+        client.onauth = ->
+          resolve new Mailbox client
+        client.onerror = (error) ->
+          reject(error)
+        if @onClose
+          client.onclose = @onClose
+        client.connect()
+
+  getImapClient.ImapClient = ImapConnection
+
+  return getImapClient.ImapClient
+
+
+class Mailbox
+  constructor: (@client) ->
+    @folderInfo = {}
+
+  selectFolder: (path=null) ->
+
+
+class MailboxFolder
+  constructor: (@imap, @folder) ->
+    @lastUid = 0
+    @messages = @imap
+
 
 getUserHome = () ->
   process.env[(process.platform is 'win32') and 'USERPROFILE' or 'HOME']
@@ -166,14 +198,14 @@ class MailTool
       options = extend {}, cfg.mailbox, options
       options.auth = extend {}, cfg.mailbox.auth, options.auth or {}
 
-      if typeof config.auth.pass is "function"
+      if typeof options.auth.pass is "function"
         passwdFunction = options.auth.pass
         options.auth.pass (passwd, callback) =>
           options.auth.pass = passwd
           callback connectImap name, options
 
       configFileDir = path.dirname cfg.configFileName
-      passwdFile = path.resolve configFileDir, config.auth.pass
+      passwdFile = path.resolve configFileDir, options.auth.pass
 
       if fs.existsSync passwdFile
         options.auth.pass = fs.readFileSync(passwdFile).toString().trim()
@@ -183,7 +215,6 @@ class MailTool
 
     connectImap name, options
 
-  
 
   closeImapConnections: (callback) ->
     imapConnections = @imapConnections
