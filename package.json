@@ -25,6 +25,7 @@
     "nodemailer-markdown": "^1.0.0",
     "nodemailer-signature": "^0.1.0",
     "nodemailer-smtp-transport": "^1.0.3",
+    "q": "^1.4.1",
     "season": "^5.3.0",
     "tcp-socket": "git+https://github.com/klorenz/tcp-socket.git",
     "underscore": "^1.8.3"

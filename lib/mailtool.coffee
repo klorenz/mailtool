@@ -4,6 +4,9 @@ CSON           = require 'season'
 {signature}    = require 'nodemailer-signature'
 nodemailer     = require 'nodemailer'
 {keys, extend} = require 'underscore'
+{EventEmitter} = require 'events'
+Mailbox        = require './mailbox.coffee'
+
 fs   = require 'fs'
 path = require 'path'
 
@@ -11,59 +14,6 @@ path = require 'path'
 work around a bug in tcp-socket.  It does not detect atom-shell
 in right way and uses wrong tcp,tls factory and fails :(
 ###
-
-getImapClient = (logLevel=null)->
-  if getImapClient.ImapClient
-    return getImapClient.ImapClient
-
-  axe = require('axe-logger')
-  axe.logLevel = logLevel ? axe.ERROR
-  tcp_socket = require('tcp-socket')
-  orig_require = module.constructor.prototype.require
-  module.constructor.prototype.require = (name) ->
-    if name is 'tcp-socket'
-      return tcp_socket
-    else if name is 'axe-logger'
-      return axe
-    else
-      return orig_require.call this, name
-  ImapClient = require 'browserbox'
-  module.constructor.prototype.require = orig_require
-
-  class ImapConnection
-    constructor: (@options) ->
-      @client = new BrowserBox @options.host, @options.port, @options
-      @onClose = options.onClose
-
-    login: ->
-      Q.Promise (resolve, reject) =>
-        client = new BrowserBox @options.host, @options.port, @options
-
-        client.onauth = ->
-          resolve new Mailbox client
-        client.onerror = (error) ->
-          reject(error)
-        if @onClose
-          client.onclose = @onClose
-        client.connect()
-
-  getImapClient.ImapClient = ImapConnection
-
-  return getImapClient.ImapClient
-
-
-class Mailbox
-  constructor: (@client) ->
-    @folderInfo = {}
-
-  selectFolder: (path=null) ->
-
-
-class MailboxFolder
-  constructor: (@imap, @folder) ->
-    @lastUid = 0
-    @messages = @imap
-
 
 getUserHome = () ->
   process.env[(process.platform is 'win32') and 'USERPROFILE' or 'HOME']
@@ -184,8 +134,8 @@ class MailTool
 
     connectImap = (name, options) =>
       if name not of @imapConnections
-        ImapClient = getImapClient(logLevel)
-        @imapConnections[name] = new ImapClient options
+        ImapConnection = require './imap-connection.coffee'
+        @imapConnections[name] = new ImapConnection name, options
 
       @imapConnections[name]
 
