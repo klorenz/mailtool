@@ -154,14 +154,18 @@ class MailTool
           options.auth.pass = passwd
           callback connectImap name, options
 
-      configFileDir = path.dirname cfg.configFileName
+      configFileDir = path.dirname @getConfigFileName()
       passwdFile = path.resolve configFileDir, options.auth.pass
 
       if fs.existsSync passwdFile
         options.auth.pass = fs.readFileSync(passwdFile).toString().trim()
 
     else
-      name = "#{config.auth.user}@#{host}:#{port}"
+      name = "#{options.auth.user}@#{host}:#{port}"
+
+    sslIndicator = if options.useSecureTransport then "s" else ""
+    options.uri = "imap#{sslIndicator}://#{options.auth.user}@#{host}:#{port}"
+    options.configName = name or options.uri
 
     connectImap name, options
 
@@ -169,8 +173,10 @@ class MailTool
   closeImapConnections: (callback) ->
     imapConnections = @imapConnections
     for name, imap of @imapConnections
-      imap.logout().then =>
-        delete imapConnections[name]
+      delete imapConnections[name]
+
+      # imap.logout().then =>
+      #   delete imapConnections[name]
 
     @imapConnections = {}
 
@@ -188,16 +194,18 @@ class MailTool
     fileName.replace /^~/, getUserHome()
 
   # load current configuration from fileName
-  loadConfig: (fileName) ->
+  loadConfig: (fileName=null) ->
     if @watcher
       @watcher.close()
+
+    fileName = @getConfigFileName() unless fileName?
 
     @closeImapConnections()
 
     @config = @readConfig fileName
 
     @watcher = fs.watch @getConfigFileName(), persistent: false, =>
-      @loadConfig()
+      @loadConfig @getConfigFileName()
 
   # reads configuraiton from filename and returns a config object
   readConfig: (fileName) ->

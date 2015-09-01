@@ -1,79 +1,90 @@
 {BrowserBox} = require './imap-client.coffee'
 Mailbox = require './mailbox.coffee'
 Q = require 'q'
+{EventEmitter} = require 'events'
+{clone} = require 'underscore'
 
 module.exports =
 class ImapConnection
   constructor: (@name, @options) ->
-    @client = new BrowserBox @options.host, @options.port, @options
+    #@client = new BrowserBox @options.host, @options.port, @options
     @onClose = options.onClose
     @namespaces = null
     @mailboxes = null
     @messages = {}
+    @emitter = new EventEmitter
 
-  login: ->
-    Q.Promise (resolve, reject) =>
-      client = new BrowserBox @options.host, @options.port, @options
+    @openingSession = false
 
-      client.onauth = ->
-        promises = []
+  # get options without login data
+  getOptions: ->
+    opts = clone @options
+    delete opts.auth
+    return opts
 
-        unless @namespaces
-          promises.push client.listNamespaces().then (namespaces) =>
-            @namespaces = namespaces
-
-        unless @mailboxes
-          promises.push client.listMailboxes().then (mailboxes) =>
-            @mailboxes = mailboxes
-
-        getMailbox = =>
-          mb = new Mailbox @, client
-          if @onClose
-            mb.onDidClose =>
-              @onClose
-
-        if promises.length
-          Q.all(promises).then -> resolve getMailbox()
-        else
-          resolve getMailbox()
-
-      client.onerror = (error) ->
-        reject(error)
-
+  getMailbox: (path) ->
+    @imapSession()
+    .then (client) =>
+      mb = new Mailbox @, client
       if @onClose
-        client.onclose = @onClose
+        mb.onDidClose =>
+          @onClose
+      mb
 
-      client.connect()
+  # checks if not another session is opened right now, because only
+  # one session may be in non-authenticated state.
 
-  openMailbox: (path) ->
+  canStartNextSession: ->
     Q.Promise (resolve, reject) =>
-      @login()
-      .then (mailbox) ->
-        mailbox.selectMailbox(path)
-        .then ->
-          resolve(mailbox)
-        .reject (err) ->
-          reject(err)
-      .reject (err) ->
-        reject(err)
+      if @openingSession is false
+        resolve()
+      else
+        @openingSession
+        .then =>
+          @openingSession = false
+          resolve()
+        .catch (err) =>
+          @openingSession = false
+          resolve()
+
+  imapSession: ->
+    @canStartNextSession().then =>
+      @openingSession = Q.Promise (resolve, reject) =>
+        client = new BrowserBox @options.host, @options.port, @options
+
+        client.onauth = ->
+          resolve client
+
+        client.onerror = (error) ->
+          reject error
+
+        if @onClose
+          client.onclose = @onClose
+
+        client.connect()
 
   # Public: return list of mailboxes.  This is only available after first
   # login.
   #
   getMailboxes: ->
-    @mailboxes
+    Q(@mailboxes).then (mailboxes) =>
+      return mailboxes if mailboxes?
+      @updateMailboxes()
 
-  buildMailboxesList: (mailboxtree) ->
-    result = []
+  getNamespaces: (client=null) ->
+    Q(@namespaces).then (namespaces) =>
+      return namespaces if namespaces?
+      @updateNamespaces()
 
   eachMailbox: (callback, mailbox=null) ->
-    mailbox = @mailboxes if mailbox?
+    @getMailboxes().then (mailboxes) =>
+      mailbox = mailboxes if mailbox?
 
-    callback mailbox
+      callback mailbox
 
-    if mailbox.children?.length
-      for childbox in mailbox.children
-        @eachMailbox callback, childbox
+      if mailbox.children?.length
+        for childbox in mailbox.children
+          @eachMailbox callback, childbox
 
   # Public: update mailboxes list
   #
@@ -81,40 +92,16 @@ class ImapConnection
   # want it to be updated, call updateMailboxes.
   #
   updateMailboxes: ->
-    Q.Promise (resolve, reject) =>
-      promises = []
+    @imapSession().then (client) =>
+      client.listMailboxes().then (mailboxes) =>
+        @emitter.emit 'did-update-mailboxes', mailboxes
+        @mailboxes = mailboxes
 
-      client = new BrowserBox @options.host, @options.port, @options
-
-      client.onauth = ->
-        resolve
-        # promises.push client.listNamespaces().then (namespaces) =>
-        #   @namespaces = namespaces
-        #   @emitter.emit 'did-update-namespaces', namespaces
-        #
-        # promises.push client.listMailboxes()
-        #   .then (mailboxes) =>
-        #     @mailboxes = mailboxes
-        #     @emitter.emit 'did-update-mailboxes', mailboxes
-        #     updatedMailboxInfo = []
-        #
-        #     # trigger an event that mailbox has been updated
-        #
-        #
-        #     Q.all(updatedMailboxInfo)
-        #
-        # Q.all(promises)
-        # .then ->
-        #   client.close()
-        #   resolve()
-        # .reject (err) ->
-        #   client.close()
-        #   reject(err)
-
-      client.onerror = (err) ->
-        reject(err)
-
-      client.connect()
+  updateNamespaces: ->
+    @imapSession().then (client) =>
+      client.listNamespaces().then (namespaces) =>
+        @emitter.emit 'did-update-namespaces', namespaces
+        @namespaces = namespaces
 
   onDidGetMailboxes: (callback) ->
     @emitter.on 'did-update-mailboxes', callback
