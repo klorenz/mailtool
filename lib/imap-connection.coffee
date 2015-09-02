@@ -71,20 +71,14 @@ class ImapConnection
       return mailboxes if mailboxes?
       @updateMailboxes()
 
+  getRootMailbox: ->
+    @getMailboxes().then (mailboxes) =>
+      @root
+
   getNamespaces: (client=null) ->
     Q(@namespaces).then (namespaces) =>
       return namespaces if namespaces?
       @updateNamespaces()
-
-  eachMailbox: (callback, mailbox=null) ->
-    @getMailboxes().then (mailboxes) =>
-      mailbox = mailboxes if mailbox?
-
-      callback mailbox
-
-      if mailbox.children?.length
-        for childbox in mailbox.children
-          @eachMailbox callback, childbox
 
   # Public: update mailboxes list
   #
@@ -94,8 +88,19 @@ class ImapConnection
   updateMailboxes: ->
     @imapSession().then (client) =>
       client.listMailboxes().then (mailboxes) =>
-        @emitter.emit 'did-update-mailboxes', mailboxes
-        @mailboxes = mailboxes
+        result = []
+        flatten = (mailbox) ->
+          result.push mailbox
+          return unless mailbox.children
+          for childbox in mailbox.children
+            flatten childbox
+
+        flatten mailboxes
+
+        @root      = result[0]
+        @mailboxes = result[1..]
+
+        @emitter.emit 'did-update-mailboxes', @mailboxes
 
   updateNamespaces: ->
     @imapSession().then (client) =>
