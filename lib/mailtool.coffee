@@ -1,11 +1,17 @@
+# TODO: Caching
+#
+#
 CSON           = require 'season'
 {markdown}     = require 'nodemailer-markdown'
 {doT}          = require 'nodemailer-dot-templates'
 {signature}    = require 'nodemailer-signature'
 nodemailer     = require 'nodemailer'
-{keys, extend} = require 'underscore'
+{keys, extend, union} = require 'underscore'
 {EventEmitter} = require 'events'
-Mailbox        = require './mailbox.coffee'
+Mailbox = require './mailbox.coffee'
+MailMessage = require './message.coffee'
+mkdirp  = require 'mkdirp'
+Q       = require 'q'
 
 fs   = require 'fs'
 path = require 'path'
@@ -25,7 +31,6 @@ class MailToolMissingFieldError extends Error
   constructor: (@field) ->
     super
     @message = "Missing field '#{@field}' in envelope"
-
   __toString: ->
     @message
 
@@ -36,6 +41,8 @@ class MailTool
       dir = @resolveFileName("~/.mailtool")
       if not fs.existsSync dir
         fs.mkdir dir, 0o0700
+
+    @version = JSON.parse(fs.readFileSync path.resolve path.dirname(__filename), '..', 'package.json').version
 
     # read config from file if it is a string
     if typeof config is "string"
@@ -134,7 +141,10 @@ class MailTool
 
     connectImap = (name, options) =>
       if name not of @imapConnections
-        ImapConnection = require './imap-connection.coffee'
+        try
+          ImapConnection = require './imap-connection.coffee'
+        catch e
+          console.log e
         @imapConnections[name] = new ImapConnection name, options
 
       @imapConnections[name]
@@ -154,11 +164,16 @@ class MailTool
           options.auth.pass = passwd
           callback connectImap name, options
 
-      configFileDir = path.dirname @getConfigFileName()
+      configFileDir = @getConfigDirName()
       passwdFile = path.resolve configFileDir, options.auth.pass
 
       if fs.existsSync passwdFile
         options.auth.pass = fs.readFileSync(passwdFile).toString().trim()
+
+      if options.cache and not options.cache.directory
+        cacheDir  = path.resolve configFileDir, name, 'cache'
+        mkdirp.sync cacheDir, mode: 0o0700
+        options.cache.directory = cacheDir
 
     else
       name = "#{options.auth.user}@#{host}:#{port}"
@@ -181,6 +196,8 @@ class MailTool
     @imapConnections = {}
 
   getConfigFileName: -> @config.configFileName
+  getConfigDirName: ->
+    path.dirname @config.configFileName
 
   # save current configuration to fileName.  if None given, then
   # configFileName will be used
@@ -212,6 +229,7 @@ class MailTool
     fileName = @resolveFileName fileName
     config = CSON.readFileSync fileName
     config.configFileName = fileName
+    console.log "mailtool config", config
     return config
 
   # writes a configuration object to fileName
@@ -228,6 +246,45 @@ class MailTool
     finally
       if configFileName?
         config.configFileName = configFileName
+
+  # append a message to a storage
+  #
+  # storage - a storage string like mailbox://<configname>/<path> or
+  #           file://<relative pathname to mailconfig or absolute path>
+  # rfc2822  - raw rfc2822 content
+  appendMessage: (storage, rfc2822) ->
+    Q.Promise (resolve, reject) =>
+      [match, scheme, name, folder] = storage.match /(mailbox|file):\/\/([^/]+)\/(.*)/
+      console.log "appendMessage", storage, rfc2822
+
+      if scheme is 'file'
+        try
+          mkdirp = require 'mkdirp'
+          dir = path.resolve(@getConfigDirName(), name, folder)
+
+          mkdirp.sync dir, mode: 0o0700
+
+          fileName = path.resolve(dir, (new Date).toISOString()+".eml")
+
+          fs.writeFileSync fileName, rfc2822
+
+          resolve {storage, name, folder, scheme, absolutePath: fileName, relativePath: fileName}
+        catch e
+          e.message = "Error storing mail to #{scheme} #{name}/#{folder}: " + e.message
+          e.rfc2822 = rfc2822
+          reject(e)
+
+      else if scheme is 'mailbox'
+        (@getImapConnection {name}).imapSession(reuse: yes).then (client) ->
+          console.log "got connection"
+          client.upload(folder, rfc2822).then (info) ->
+            console.log "uploaded", info
+            resolve { storage, name, folder, scheme }
+          .catch (error) ->
+            console.log "upload error", error, error.stack
+            reject error
+        .catch (error) ->
+          reject error
 
   parseMessageText: (text) ->
     return {text} unless m = text.match /^([\w\-]+[ \t]*:\s[\s\S]*?)\r?\n\r?\n([\s\S]*)/
@@ -262,102 +319,148 @@ class MailTool
     else
       throw new Error "Cannot parse header"
 
-  compile: (options, callback) ->
-    extend options, @parseMessageText options.text
+  compile: (options) ->
+    Q.Promise (resolve, reject) =>
 
-    cfgName = options.config or options.name or 'default.default'
+      extend options, @parseMessageText options.text
 
-    if not cfgName.match /\./
-      throw new Error "invalid configuration name (must contain a .)"
+      cfgName = options.config or options.name or 'default.default'
 
-    for key, value of @getConfig(cfgName)
-      if key not of options
-        options[key] = value
-      else if typeof options[key] is "object" and typeof value is "object"
-        options[key] = extend {}, value, options[key]
+      if not cfgName.match /\./
+        throw new Error "invalid configuration name (must contain a .)"
 
-    if options.markdown is true
-      options.markdown = options.text
-      delete options.text
+      for key, value of @getConfig(cfgName)
+        if key not of options
+          options[key] = value
+        else if typeof options[key] is "object" and typeof value is "object"
+          options[key] = extend {}, value, options[key]
 
-    missing = []
-    for field in @required
-      if field not of options
-        missing.push field
+      if options.markdown is true
+        options.markdown = options.text
+        delete options.text
 
-    if missing.length
-      if options.optionDialog
-        return options.optionDialog {missing, options}, ->
-          callback?(options)
+      missing = []
+      for field in @required
+        if field not of options
+          missing.push field
 
-      err = new MailToolMissingFieldError missing
+      if missing.length
+        if options.optionDialog
+          return options.optionDialog {missing, options}, (error) =>
+            if error
+              reject error
+            else
+              resolve options
 
-      if callback
-        return process.nextTick -> callback err
-      else
-        throw err
+        else
+          return reject new MailToolMissingFieldError missing
 
-    callback?(options)
+      resolve options
 
+  getTransporter: (config) ->
+    Q.Promise (resolve, reject) =>
+      # have transoporter
+      # -------------------
 
-  sendMail: (config, callback) ->
-    config = extend {}, config
+      if config.transport
+        storeSentMessages = union(
+          (config.storeSentMessages ? []),
+          (config.transport.storeSentMessages ? [])
+          )
+        if @transport.sendmail
+          return resolve @transport
+        else
+          transport = @transport config.transport
+          return resolve nodemailer.createTransport transport
 
-    setupTransporter = (done) =>
-      unless config.transport
+      # create transoporter
+      # -------------------
 
-        cfgName = config.config or config.name or 'default'
-        if m = cfgName.match /(.*)\.(.*)/
-          cfgName = m[1]
+      cfgName = config.config or config.name or 'default'
+      if m = cfgName.match /(.*)\.(.*)/
+        cfgName = m[1]
 
-        config.transport = extend {}, @getConfig(cfgName).transport
-        config.transport.auth = auth = extend {}, config.transport.auth
+      unless transport = @getConfig(cfgName).transport
+        return reject new Error "No mail transport defined for config #{cfgName}"
 
-        configFileDir = path.dirname @getConfigFileName()
-        passwdFile = path.resolve configFileDir, auth.pass
+      config.transport = extend {}, transport
+      config.transport.auth = auth = extend {}, config.transport.auth
 
-        if fs.existsSync passwdFile
-          auth.pass = fs.readFileSync(passwdFile).toString().trim()
+      configFileDir = path.dirname @getConfigFileName()
+      console.log "configFileDir", configFileDir, "auth.pass", auth.pass
 
-      # setup transport
+      passwdFile = path.resolve configFileDir, auth.pass
 
-        if config.transport.rejectUnauthorized is false
-          process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+      if fs.existsSync passwdFile
+        auth.pass = fs.readFileSync(passwdFile).toString().trim()
 
-        transport = (require "nodemailer-smtp-transport") config.transport
+    # setup transport
 
-        # transport.on 'log', (args...) =>
-        #   console.log args...
-        # transport.on 'error', (args...) =>
-        #   console.log 'error', args...
+      if config.transport.rejectUnauthorized is false
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
-        transporter = nodemailer.createTransport transport
-      else if @transport.sendMail
-        transporter = @transport
-      else
-        transport = @transport config.transport
-        transporter = nodemailer.createTransport transport
+      transport = (require "nodemailer-smtp-transport") config.transport
 
-      done transporter
+      resolve nodemailer.createTransport transport
 
-    @compile config, =>
-      setupTransporter (transporter) =>
-        theMail = null
-        transporter.use 'compile', doT()
-        transporter.use 'compile', signature()
-        transporter.use 'compile', markdown config
+  sendMail: (config) ->
+    Q.Promise (resolve, reject, notify) =>
+      config = extend {}, config
+      storeSentMessages = []
 
-        transporter.use 'compile', (mail, callback) =>
-          theMail = mail
-          console.log "message compiled", theMail
-          callback()
+      @compile(config).then =>
+        @getTransporter(config).then (transporter) =>
+          storeSentMessages = union(
+            (config.storeSentMessages ? []),
+            (config.transport.storeSentMessages ? [])
+            )
 
-        transporter.sendMail config, callback
-          # #store mailMessage to imap
-          # if err?
-          #   callback(err)
-          # else
-          #   callback(theMail)
+          transporter.use 'compile', doT()
+          transporter.use 'compile', signature()
+          transporter.use 'compile', markdown config
+
+          rfc2822 = ''
+          plugin = new (require('stream').Transform)();
+          plugin._transform = (chunk, encoding, done) ->
+            # replace all spaces with tabs in the stream chunk
+            rfc2822 += chunk.toString()
+            console.log encoding
+            plugin.push chunk
+            done()
+
+          transporter.use 'stream', (mail, done) ->
+            mail.message.transform plugin
+            done()
+
+          transporter.sendMail config, (error, info) =>
+            info ?= {}
+            info.rfc2822 = rfc2822.replace /(\r\n|\r|\n)/g, "\r\n"
+            return reject(error) if error
+
+            notify info
+
+            promises = []
+            errors = []
+
+            for storage in storeSentMessages
+              promise = @appendMessage(storage, info.rfc2822)
+              .then (info) ->
+                notify info
+              .catch (error) ->
+                errors.push error
+                notify error
+
+              promises.push promise
+
+            if promises.length
+              Q.allSettled(promises).then ->
+                if errors.length
+                  resolve info, errors
+                else
+                  resolve info
+            else
+              resolve info
+
 
 nodeMailerConfig = (args...) ->
   mailtool = new MailTool args...
@@ -366,10 +469,10 @@ nodeMailerConfig = (args...) ->
     mailtool.compile(options, done)
 
 main = ->
-  mt = new MailTool "~/.mailtool.cson"
+  mt = new MailTool "~/.mailtool/config.cson"
 
   mt.connectImap('default').then () =>
     mt.imap.listWellKnownFolders().then (folderInfo) =>
       console.log folderInfo
 
-module.exports = {MailTool, nodeMailerConfig, main, MailToolMissingFieldError}
+module.exports = {MailTool, nodeMailerConfig, main, MailToolMissingFieldError, MailMessage}

@@ -1,4 +1,4 @@
-main = require "../src/main.coffee"
+main = require "../lib/mailtool.coffee"
 {extend} = require "underscore"
 
 describe "MailTool", ->
@@ -58,6 +58,11 @@ describe "MailTool", ->
     runs ->
       expect(mock.sendMail).toHaveBeenCalledWith(extend({config: 'someconfig'}, mailoptsConfig.someconfig, mailopts), mock.callback)
 
-  fit "can run mail", ->
-    debugger
-    main.main()
+  # fit "can run mail", ->
+  #   debugger
+  #   main.main()
+
+  fit "can create a uid sequence", ->
+    {makeSequence} = require '../lib/utils.coffee'
+    expect(makeSequence([1, 2, 3])).toEqual "1:3"
+    expect(makeSequence([1, 2, 8, 5, 3, 9])).toEqual "1:3,5,8:9"
