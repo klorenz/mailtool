@@ -60,7 +60,7 @@ class MailMessage
     @cc   = formatAddressList @cc
     @bcc  = formatAddressList @bcc
 
-    @flag = makeFlags msg
+    @flag = @makeFlags msg
 
     @bodyStructure = msg.bodystructure
 
